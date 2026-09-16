@@ -589,9 +589,18 @@ function saveVisualState(){
   try{localStorage.setItem(F2K_EXTENDED_STATE,JSON.stringify(visualStates))}catch(error){console.warn('Textes non enregistrés',error)}
 }
 function applyTextWidth(el,value){if(value){el.dataset.textWidth=value;el.style.width=value+'px';el.style.maxWidth='none';el.style.right='auto'}else{delete el.dataset.textWidth;el.style.width='';el.style.maxWidth='';el.style.right=''}}
+function clampCoreText(el){
+  if(!el||!stage.contains(el)||!el.textContent.trim())return;
+  const stageBox=stage.getBoundingClientRect(),box=el.getBoundingClientRect(),ratio=stageRatio();let x=+el.dataset.x||0,y=+el.dataset.y||0;
+  if(box.right<stageBox.left+20)x+=(stageBox.left+20-box.right)/ratio.x;
+  if(box.left>stageBox.right-20)x-=(box.left-stageBox.right+20)/ratio.x;
+  if(box.bottom<stageBox.top+20)y+=(stageBox.top+20-box.bottom)/ratio.y;
+  if(box.top>stageBox.bottom-20)y-=(box.top-stageBox.bottom+20)/ratio.y;
+  el.dataset.x=x;el.dataset.y=y;transform(el);
+}
 function restoreVisualState(){
   const state=visualStates[visualKey()];if(!state)return;
-  Object.entries(state.texts||{}).forEach(([id,text])=>{const el=$('#'+id);if(!el)return;el.innerHTML=text.html;el.dataset.userDeleted=text.hidden?'1':'0';el.style.visibility=text.hidden?'hidden':'';applyTextWidth(el,text.width);if(text.color)el.style.color=text.color;if(text.background)el.style.backgroundColor=text.background;const input=$('#'+id+'Input');if(input)input.value=el.textContent.trim()});
+  Object.entries(state.texts||{}).forEach(([id,text])=>{const el=$('#'+id);if(!el)return;el.innerHTML=text.html;const hasText=!!el.textContent.trim(),shouldHide=!!text.hidden&&!hasText;el.dataset.userDeleted=shouldHide?'1':'0';el.style.visibility=shouldHide?'hidden':'';applyTextWidth(el,text.width);if(text.color)el.style.color=text.color;if(text.background)el.style.backgroundColor=text.background;const input=$('#'+id+'Input');if(input)input.value=el.textContent.trim();requestAnimationFrame(()=>clampCoreText(el))});
   if(state.priceBubble&&$('#priceBubbleColor')){$('#priceBubbleColor').value=state.priceBubble;document.documentElement.style.setProperty('--price-bubble',state.priceBubble)}
   $$('.extra-text[data-f2k-restored="1"]').forEach(el=>el.remove());
   (state.customTexts||[]).forEach(text=>{const el=document.createElement('div');el.className='extra-text';el.dataset.f2kRestored='1';el.dataset.uid=text.uid||'t'+(++uid);el.dataset.workshopOwner=workshop;el.dataset.visualOwner=visualKey();el.innerHTML=text.html;el.contentEditable=true;el.style.color=text.color||'#fff';el.style.zIndex=text.position?.z||90;stage.insertBefore(el,$('#delete'));restore(el,text.position);applyTextWidth(el,text.width);movable(el)});
@@ -607,7 +616,7 @@ const originalAddText=$('#addText').onclick;$('#addText').onclick=()=>{originalA
 
 const priceBubbleColor=document.createElement('input');priceBubbleColor.type='color';priceBubbleColor.id='priceBubbleColor';priceBubbleColor.value='#ffffff';priceBubbleColor.title='Couleur du rond 1 € PDD';priceBubbleColor.setAttribute('aria-label','Couleur du rond 1 € PDD');subtitleField.appendChild(priceBubbleColor);priceBubbleColor.oninput=e=>{document.documentElement.style.setProperty('--price-bubble',e.target.value);saveVisualState()};
 
-remove=function(){if(!selected)return;pushUndo();if(['title','subtitle','series'].includes(selected.id)){selected.dataset.userDeleted='1';selected.style.visibility='hidden'}else selected.remove();select(null);saveVisualState()};
+remove=function(){if(!selected)return;pushUndo();if(['title','subtitle','series'].includes(selected.id)){const id=selected.id,input=$('#'+id+'Input');selected.innerHTML='';selected.dataset.userDeleted='0';selected.style.visibility='';if(input)input.value=''}else selected.remove();select(null);saveVisualState()};
 $('#remove').onclick=$('#delete').onclick=remove;
 
 const textWidthNote=document.createElement('span');textWidthNote.className='text-width-note';stage.appendChild(textWidthNote);
