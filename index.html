@@ -767,7 +767,7 @@ function installCloudProjectHandlers(){
 async function loadCloudWorkspace(){
   if(location.protocol==='file:')return;
   cloudStatus('Connexion à la sauvegarde cloud…');
-  try{cloudWorkspace=await cloudRequest('/api/workspace');mergeCloudLibraries();if(!cloudInstalled){installCloudLibraryHandlers();installCloudProjectHandlers();cloudInstalled=true}else{renderCloudProjects();renderCloudElements();renderSavedBackgrounds()}projectManager.querySelector('.project-status').textContent='Projets synchronisés dans le cloud ✓'}catch(error){if(error.status===401)cloudStatus('Reconnecte-toi avec le code F2K pour synchroniser les projets.');else cloudStatus(error.message)}
+  try{cloudWorkspace=await cloudRequest('/api/workspace');mergeCloudLibraries();if(!cloudInstalled){installCloudLibraryHandlers();installCloudProjectHandlers();cloudInstalled=true}else{renderCloudProjects();renderCloudElements();renderSavedBackgrounds()}projectManager.querySelector('.project-status').textContent='Projets synchronisés dans le cloud ✓'}catch(error){if(error.status===401){localStorage.removeItem('f2k-access-until-v2');sessionStorage.removeItem('f2k-access-session-v2');document.body.classList.add('access-locked');accessGate.hidden=false;accessMessage.textContent='Reconnecte-toi pour activer la sauvegarde cloud.';cloudStatus('Reconnecte-toi avec le code F2K pour synchroniser les projets.')}else cloudStatus(error.message)}
 }
 accessForm.addEventListener('submit',()=>setTimeout(loadCloudWorkspace,900));setTimeout(loadCloudWorkspace,0);
 restoreVisualState();
