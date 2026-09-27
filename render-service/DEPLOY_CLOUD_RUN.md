@@ -12,10 +12,13 @@ Le déploiement utilise le dossier `f2k-studio` comme contexte Docker.
 
 ```bash
 gcloud config set project PROJECT_ID
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com storage.googleapis.com
 gcloud artifacts repositories create f2k-studio \
   --repository-format=docker \
   --location=europe-west1
+gcloud storage buckets create gs://PROJECT_ID-f2k-studio-storage \
+  --location=europe-west1 \
+  --uniform-bucket-level-access
 ```
 
 ## Créer les secrets
@@ -59,7 +62,7 @@ gcloud run deploy f2k-studio \
   --max-instances 1 \
   --timeout 3600 \
   --no-cpu-throttling \
-  --set-env-vars F2K_ACCESS_CODE_HASH=37f8ed32fec54c684bf2007c292b0b4a236478895ca639287e823b1c31a3ae4b,F2K_RETENTION_MS=86400000 \
+  --set-env-vars F2K_ACCESS_CODE_HASH=37f8ed32fec54c684bf2007c292b0b4a236478895ca639287e823b1c31a3ae4b,F2K_RETENTION_MS=86400000,F2K_STORAGE_BUCKET=PROJECT_ID-f2k-studio-storage \
   --set-secrets F2K_RENDER_API_KEY=f2k-render-api-key:latest,F2K_SESSION_SECRET=f2k-session-secret:latest
 ```
 
@@ -81,6 +84,8 @@ gcloud run deploy f2k-studio \
 4. Exporter uniquement une vidéo Story.
 5. Vérifier le suivi du job, le téléchargement MP4 et les logs.
 6. Tester ensuite Post, puis seulement les exports multiples.
+
+La sauvegarde cloud limite chaque outil à 10 projets, 20 produits, 40 cartes et 20 éléments personnels. La suppression d’une image de la bibliothèque est non destructive : les projets déjà enregistrés continuent de l’utiliser.
 
 ## Limite importante
 

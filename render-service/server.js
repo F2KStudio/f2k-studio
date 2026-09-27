@@ -6,21 +6,24 @@ import {spawn} from 'node:child_process';
 import express from 'express';
 import cors from 'cors';
 import {chromium} from 'playwright';
+import {CloudWorkspaceStore} from './cloud-store.js';
 
 const app=express();
 const port=Number(process.env.PORT||8080);
+const publicDirectory=process.env.F2K_PUBLIC_DIR||path.join(process.cwd(),'public');
 const apiKey=process.env.F2K_RENDER_API_KEY||'';
 const accessCodeHash=process.env.F2K_ACCESS_CODE_HASH||'';
 const sessionSecret=process.env.F2K_SESSION_SECRET||'';
 const allowedOrigin=process.env.F2K_ALLOWED_ORIGIN||'';
 const chatSarahWebhookUrl=process.env.CHAT_SARAH_WEBHOOK_URL||'';
+const workspaceStore=new CloudWorkspaceStore({bucketName:process.env.F2K_STORAGE_BUCKET||'',localDirectory:process.env.F2K_STORAGE_DIR||''});
 const retentionMs=Math.max(15*60*1000,Number(process.env.F2K_RETENTION_MS||24*60*60*1000));
 const jobs=new Map();
 let queue=Promise.resolve();
 
 app.disable('x-powered-by');
 app.use(cors({origin:allowedOrigin||false,credentials:false}));
-app.use(express.json({limit:'35mb'}));
+app.use(express.json({limit:'75mb'}));
 
 function cookieValue(req,name){
   const entries=String(req.headers.cookie||'').split(';').map(value=>value.trim().split('='));
@@ -45,6 +48,7 @@ function validSession(req){
 }
 
 function authenticate(req,res,next){
+  if(process.env.NODE_ENV!=='production'&&['127.0.0.1','localhost'].includes(req.hostname))return next();
   const supplied=req.get('x-f2k-render-key')||'';
   if(apiKey&&supplied){
     const left=Buffer.from(supplied),right=Buffer.from(apiKey);
@@ -166,6 +170,49 @@ function enqueue(job,payload){
 
 app.get('/api/health',(req,res)=>res.json({ok:true,queued:[...jobs.values()].filter(job=>['queued','rendering','encoding'].includes(job.status)).length}));
 
+function requireCloudStore(req,res,next){
+  if(!workspaceStore.enabled)return res.status(503).json({error:'La sauvegarde cloud n’est pas configurée.'});
+  return next();
+}
+
+function cloudError(res,error){
+  console.error('Cloud workspace error',error);
+  res.status(error.statusCode||500).json({error:error.message||'La sauvegarde cloud a échoué.',code:error.code});
+}
+
+app.get('/api/workspace',authenticate,requireCloudStore,async(req,res)=>{
+  try{res.json(await workspaceStore.workspace())}catch(error){cloudError(res,error)}
+});
+
+app.get('/api/projects/:id',authenticate,requireCloudStore,async(req,res)=>{
+  try{const project=await workspaceStore.getProject(req.params.id);project?res.json(project):res.status(404).json({error:'Projet introuvable.'})}catch(error){cloudError(res,error)}
+});
+
+app.post('/api/projects',authenticate,requireCloudStore,async(req,res)=>{
+  try{res.json(await workspaceStore.saveProject({id:req.body.id,name:req.body.name,data:req.body.data}))}catch(error){cloudError(res,error)}
+});
+
+app.delete('/api/projects/:id',authenticate,requireCloudStore,async(req,res)=>{
+  try{(await workspaceStore.deleteProject(req.params.id))?res.json({ok:true}):res.status(404).json({error:'Projet introuvable.'})}catch(error){cloudError(res,error)}
+});
+
+app.post('/api/assets',authenticate,requireCloudStore,async(req,res)=>{
+  try{res.json(await workspaceStore.addAsset({kind:req.body.kind,name:req.body.name,dataUrl:req.body.dataUrl,usage:req.body.usage}))}catch(error){cloudError(res,error)}
+});
+
+app.get('/api/assets/:id',authenticate,requireCloudStore,async(req,res)=>{
+  try{
+    const asset=await workspaceStore.getAsset(req.params.id);
+    if(!asset)return res.status(404).end();
+    res.setHeader('Cache-Control','private, max-age=31536000, immutable');
+    res.type(asset.item.contentType).send(asset.buffer);
+  }catch(error){cloudError(res,error)}
+});
+
+app.delete('/api/assets/:id',authenticate,requireCloudStore,async(req,res)=>{
+  try{(await workspaceStore.removeAssetFromLibrary(req.params.id))?res.json({ok:true}):res.status(404).json({error:'Image introuvable.'})}catch(error){cloudError(res,error)}
+});
+
 app.post('/api/png',authenticate,async(req,res)=>{
   try{
     const payload=validatePayload(req.body);
@@ -250,7 +297,7 @@ setInterval(async()=>{
   }
 },10*60*1000).unref();
 
-app.get(['/', '/index.html'],(req,res)=>{res.setHeader('Cache-Control','no-store');res.sendFile(path.join(process.cwd(),'public','index.html'))});
-app.use(express.static(path.join(process.cwd(),'public'),{index:false,maxAge:process.env.NODE_ENV==='production'?'5m':0}));
+app.get(['/', '/index.html'],(req,res)=>{res.setHeader('Cache-Control','no-store');res.sendFile(path.join(publicDirectory,'index.html'))});
+app.use(express.static(publicDirectory,{index:false,maxAge:process.env.NODE_ENV==='production'?'5m':0}));
 
 app.listen(port,'0.0.0.0',()=>console.log(`F2K renderer listening on ${port}`));

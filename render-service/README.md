@@ -4,7 +4,7 @@ Prototype portable Cloud Run / Docker pour produire un MP4 déterministe à part
 
 ## API
 
-Toutes les routes `/api` exigent l’en-tête `x-f2k-render-key` correspondant à `F2K_RENDER_API_KEY`.
+Toutes les routes privées `/api` exigent soit la session sécurisée du studio, soit l’en-tête `x-f2k-render-key` correspondant à `F2K_RENDER_API_KEY`.
 
 ### Créer un job
 
@@ -46,5 +46,7 @@ Les fichiers sont supprimés après `F2K_RETENTION_MS` (24 heures par défaut).
 
 - `F2K_RENDER_API_KEY` obligatoire.
 - `F2K_ALLOWED_ORIGIN` facultatif.
+- `F2K_STORAGE_BUCKET` active la sauvegarde partagée des projets et bibliothèques dans Cloud Storage.
+- `F2K_STORAGE_DIR` fournit un stockage local uniquement pour le développement.
 - `F2K_RETENTION_MS` facultatif.
 - `PORT` fourni par Cloud Run.
