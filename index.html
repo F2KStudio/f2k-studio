@@ -770,5 +770,14 @@ async function loadCloudWorkspace(){
   try{cloudWorkspace=await cloudRequest('/api/workspace');mergeCloudLibraries();if(!cloudInstalled){installCloudLibraryHandlers();installCloudProjectHandlers();cloudInstalled=true}else{renderCloudProjects();renderCloudElements();renderSavedBackgrounds()}projectManager.querySelector('.project-status').textContent='Projets synchronisés dans le cloud ✓'}catch(error){if(error.status===401){localStorage.removeItem('f2k-access-until-v2');sessionStorage.removeItem('f2k-access-session-v2');document.body.classList.add('access-locked');accessGate.hidden=false;accessMessage.textContent='Reconnecte-toi pour activer la sauvegarde cloud.';cloudStatus('Reconnecte-toi avec le code F2K pour synchroniser les projets.')}else cloudStatus(error.message)}
 }
 accessForm.addEventListener('submit',()=>setTimeout(loadCloudWorkspace,900));setTimeout(loadCloudWorkspace,0);
+function exportRootCssVariables(){
+  const styles=getComputedStyle(document.documentElement),names=['--accent','--navy','--bg1','--bg2','--bg3','--solid-bg','--price-bubble'];
+  return names.map(name=>[name,styles.getPropertyValue(name).trim()]).filter(([,value])=>value).map(([name,value])=>name+':'+value).join(';');
+}
+const colorSafeStandaloneRenderHtml=standaloneRenderHtml;
+standaloneRenderHtml=async function(freezeMotion){
+  const html=await colorSafeStandaloneRenderHtml(freezeMotion),rootVariables=exportRootCssVariables();
+  return html.replace(/<html(?: style="[^"]*")?>/,'<html style="'+rootVariables+'">');
+};
 restoreVisualState();
 </script></body></html>
