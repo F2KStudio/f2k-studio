@@ -384,12 +384,6 @@ const states={'live::story':{
   }
 }};
 const cloneLayout=value=>JSON.parse(JSON.stringify(value));function seedLiveLayouts(format,sourceKey){const source=states[sourceKey];if(!source)return;for(let count=1;count<=5;count++){const target='live::'+format+'::'+count;if(!states[target])states[target]=cloneLayout(source)}}seedLiveLayouts('story','live::story');seedLiveLayouts('post','live::post');seedLiveLayouts('thumb-voggt','live::thumb-voggt');seedLiveLayouts('banner-web','live::banner-web::4');seedLiveLayouts('banner-mobile','live::banner-mobile::4');
-/* Atelier 1 / Story / 3 produits : placement des trois cartes validé dans l'éditeur. */
-Object.assign(states['live::story::3'].items,{
-  'live-card-0':{x:177.908203125,y:6.8889464211185345,s:110,r:0,z:'auto'},
-  'live-card-1':{x:4.3359375,y:17.364236748747913,s:110,r:0,z:'auto'},
-  'live-card-2':{x:-175.134765625,y:6.880263068656092,s:110,r:0,z:'auto'}
-});
 Object.assign(states['live::banner-mobile::3'],{
   title:{x:-92.5390625,y:89.046875,s:140.3485639784071,r:0,z:25},
   subtitle:{x:-34.6015625,y:20.32421875,s:172.13362870392976,r:0,z:25},
