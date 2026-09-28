@@ -821,8 +821,8 @@ function exportRootCssVariables(){
 }
 const colorSafeStandaloneRenderHtml=standaloneRenderHtml;
 standaloneRenderHtml=async function(freezeMotion){
-  const html=await colorSafeStandaloneRenderHtml(freezeMotion),rootVariables=exportRootCssVariables();
-  return html.replace(/<html(?: style="[^"]*")?>/,'<html style="'+rootVariables+'">');
+  const styles=getComputedStyle(document.documentElement),accent=styles.getPropertyValue('--accent').trim(),safeAccent=/^#[0-9a-f]{6}$/i.test(accent)?accent:'#f2a31b',html=await colorSafeStandaloneRenderHtml(freezeMotion),rootVariables=exportRootCssVariables();
+  return html.replace(/<html(?: style="[^"]*")?>/,'<html style="'+rootVariables+'">').replace('</head>','<style id="export-secondary-color">.stage .leaf:not(.pale):not(.blue){background:'+safeAccent+'!important}</style></head>');
 };
 function repairLivePriceBadge(){
   if(workshop!=='live')return;
