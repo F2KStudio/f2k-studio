@@ -149,6 +149,19 @@ export class CloudWorkspaceStore{
     return buffer?{item,buffer}:null;
   }
 
+  async inlineAssetUrls(html){
+    if(!this.enabled||!html)return html;
+    const pattern=/(?:https?:\/\/[a-z0-9.:-]+)?\/api\/assets\/([0-9a-f-]{36})/gi;
+    const references=[...String(html).matchAll(pattern)];
+    if(!references.length)return html;
+    const replacements=new Map();
+    await Promise.all([...new Set(references.map(match=>match[1]))].map(async id=>{
+      const asset=await this.getAsset(id);
+      if(asset)replacements.set(id,`data:${asset.item.contentType};base64,${asset.buffer.toString('base64')}`);
+    }));
+    return String(html).replace(pattern,(url,id)=>replacements.get(id)||url);
+  }
+
   removeAssetFromLibrary(id){
     return this.serialized(async()=>{
       const index=await this.readJson('assets/index.json',{assets:[]}),assets=index.assets||[];

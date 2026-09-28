@@ -99,7 +99,7 @@ async function render(job,payload){
   job.directory=directory;
   job.status='rendering';
   job.progress=2;
-  await fs.writeFile(htmlPath,payload.html,'utf8');
+  await fs.writeFile(htmlPath,await workspaceStore.inlineAssetUrls(payload.html),'utf8');
   const browser=await chromium.launch({headless:true,args:['--disable-dev-shm-usage','--no-sandbox']});
   try{
     const scale=Math.min(4,payload.width/payload.renderWidth,payload.height/payload.renderHeight);
@@ -137,7 +137,7 @@ async function render(job,payload){
 async function renderPng(payload){
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),'f2k-png-'));
   const htmlPath=path.join(directory,'render.html');
-  await fs.writeFile(htmlPath,payload.html,'utf8');
+  await fs.writeFile(htmlPath,await workspaceStore.inlineAssetUrls(payload.html),'utf8');
   const browser=await chromium.launch({headless:true,args:['--disable-dev-shm-usage','--no-sandbox']});
   try{
     const scale=Math.min(4,payload.width/payload.renderWidth,payload.height/payload.renderHeight);
