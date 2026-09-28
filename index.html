@@ -384,6 +384,12 @@ const states={'live::story':{
   }
 }};
 const cloneLayout=value=>JSON.parse(JSON.stringify(value));function seedLiveLayouts(format,sourceKey){const source=states[sourceKey];if(!source)return;for(let count=1;count<=5;count++){const target='live::'+format+'::'+count;if(!states[target])states[target]=cloneLayout(source)}}seedLiveLayouts('story','live::story');seedLiveLayouts('post','live::post');seedLiveLayouts('thumb-voggt','live::thumb-voggt');seedLiveLayouts('banner-web','live::banner-web::4');seedLiveLayouts('banner-mobile','live::banner-mobile::4');
+/* Atelier 1 / Story / 3 produits : placement des trois cartes validé dans l'éditeur. */
+Object.assign(states['live::story::3'].items,{
+  'live-card-0':{x:177.908203125,y:6.8889464211185345,s:110,r:0,z:'auto'},
+  'live-card-1':{x:4.3359375,y:17.364236748747913,s:110,r:0,z:'auto'},
+  'live-card-2':{x:-175.134765625,y:6.880263068656092,s:110,r:0,z:'auto'}
+});
 Object.assign(states['live::banner-mobile::3'],{
   title:{x:-92.5390625,y:89.046875,s:140.3485639784071,r:0,z:25},
   subtitle:{x:-34.6015625,y:20.32421875,s:172.13362870392976,r:0,z:25},
@@ -634,9 +640,8 @@ resizeHandle.onpointerdown=e=>{
   resizeHandle.onpointerup=()=>{resizeHandle.onpointermove=null;textWidthNote.style.display='none';saveVisualState()};
 };
 
-function clampCard(el){if(!el?.classList.contains('card')||!stage.contains(el))return;const stageBox=stage.getBoundingClientRect(),box=el.getBoundingClientRect(),ratio=stageRatio();let x=+el.dataset.x||0,y=+el.dataset.y||0;if(box.right<stageBox.left+20)x+=(stageBox.left+20-box.right)/ratio.x;if(box.left>stageBox.right-20)x-=(box.left-stageBox.right+20)/ratio.x;if(box.bottom<stageBox.top+20)y+=(stageBox.top+20-box.bottom)/ratio.y;if(box.top>stageBox.bottom-20)y-=(box.top-stageBox.bottom+20)/ratio.y;el.dataset.x=x;el.dataset.y=y;transform(el)}
+function clampCard(el){if(!el?.classList.contains('card')||!stage.contains(el)||el.classList.contains('hidden')||!el.getClientRects().length)return;const stageBox=stage.getBoundingClientRect(),box=el.getBoundingClientRect(),ratio=stageRatio();let x=+el.dataset.x||0,y=+el.dataset.y||0;if(box.right<stageBox.left+20)x+=(stageBox.left+20-box.right)/ratio.x;if(box.left>stageBox.right-20)x-=(box.left-stageBox.right+20)/ratio.x;if(box.bottom<stageBox.top+20)y+=(stageBox.top+20-box.bottom)/ratio.y;if(box.top>stageBox.bottom-20)y-=(box.top-stageBox.bottom+20)/ratio.y;el.dataset.x=x;el.dataset.y=y;transform(el)}
 stage.addEventListener('pointerup',()=>{$$('.card[data-uid]').forEach(clampCard);save()},true);
-const originalRestore=restore;restore=function(el,data){originalRestore(el,data);if(el?.classList.contains('card'))requestAnimationFrame(()=>clampCard(el))};
 ['xN','xR','yN','yR','sizeN','sizeR'].forEach(id=>$('#'+id).addEventListener('change',()=>{if(selected?.classList.contains('card')){clampCard(selected);save()}},true));
 
 document.addEventListener('keydown',e=>{if(e.key!=='Enter'||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey)return;const active=document.activeElement;if(active?.matches('input,textarea,select,[contenteditable=true],button'))return;if(productGroup.hidden)return;e.preventDefault();const next=Math.min(productLimit(),(+productCountSelect.value||0)+1);chooseProductCount(next);productSlot=Math.max(0,next-1);chooseSlot('#productSlots',productSlot);save()},true);
