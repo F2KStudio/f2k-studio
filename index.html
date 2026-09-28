@@ -750,13 +750,43 @@ function installCloudLibraryHandlers(){
   renderSavedProducts();renderSavedCards();renderCloudElements();
 }
 
-const baseSaveVisualState=saveVisualState;saveVisualState=function(){baseSaveVisualState();const current=visualStates[visualKey()]||(visualStates[visualKey()]={});if(stage.dataset.bg==='custom'){const match=stage.style.backgroundImage.match(/url\(["']?([^"')]+)["']?\)/);current.customBackground=match?.[1]||''}else current.customBackground='';try{localStorage.setItem(F2K_EXTENDED_STATE,JSON.stringify(visualStates))}catch(_){}};
-const baseRestoreVisualState=restoreVisualState;restoreVisualState=function(){baseRestoreVisualState();const current=visualStates[visualKey()];if(current?.customBackground){stage.dataset.bg='custom';stage.style.backgroundImage='url("'+current.customBackground+'")';updateBgColorEditors('custom')}};
-function cloudProjectSnapshot(){const data=projectSnapshot();delete data.savedProducts;delete data.savedCards;data.version=2;data.customImages=$$('.extra').map(item=>({uid:item.dataset.uid,src:item.src,workshopOwner:item.dataset.workshopOwner,position:snap(item)}));return data}
+function currentCssVariable(name,fallback=''){return getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback}
+function backgroundImageUrl(){const match=stage.style.backgroundImage.match(/url\(["']?([^"')]+)["']?\)/);return match?.[1]||''}
+const baseSaveVisualState=saveVisualState;saveVisualState=function(){
+  baseSaveVisualState();
+  const current=visualStates[visualKey()]||(visualStates[visualKey()]={}),kind=stage.dataset.bg||'navy',image=kind==='custom'?backgroundImageUrl():'';
+  current.customBackground=image;
+  current.background={kind,image,accent:currentCssVariable('--accent','#f2a31b'),bg1:currentCssVariable('--bg1','#fff4cf'),bg2:currentCssVariable('--bg2','#9fc4ff'),bg3:currentCssVariable('--bg3','#f2a31b'),solid:currentCssVariable('--solid-bg','#df5b9d'),priceBubble:currentCssVariable('--price-bubble','#ffffff'),cardsVisible:backgroundCardsVisible};
+  try{localStorage.setItem(F2K_EXTENDED_STATE,JSON.stringify(visualStates))}catch(_){}
+};
+const baseRestoreVisualState=restoreVisualState;restoreVisualState=function(){
+  baseRestoreVisualState();
+  const current=visualStates[visualKey()],background=current?.background;
+  if(background){
+    const colors={accent:'--accent',bg1:'--bg1',bg2:'--bg2',bg3:'--bg3',solid:'--solid-bg',priceBubble:'--price-bubble'};
+    Object.entries(colors).forEach(([key,variable])=>{if(background[key])document.documentElement.style.setProperty(variable,background[key])});
+    if(background.bg1&&$('#bg1'))$('#bg1').value=background.bg1;if(background.bg2&&$('#bg2'))$('#bg2').value=background.bg2;if(background.bg3&&$('#bg3'))$('#bg3').value=background.bg3;if(background.solid&&$('#solidBgColor'))$('#solidBgColor').value=background.solid;if(background.priceBubble&&$('#priceBubbleColor'))$('#priceBubbleColor').value=background.priceBubble;
+    const kind=background.kind||'navy';stage.dataset.bg=kind;stage.style.backgroundImage=kind==='custom'&&background.image?'url("'+background.image+'")':'';$$('.bg').forEach(item=>item.classList.toggle('active',item.dataset.bg===kind));updateBgColorEditors(kind);updateRecentSolidColorsVisibility();
+    if(typeof background.cardsVisible==='boolean'){backgroundCardsVisible=background.cardsVisible;bgCardsToggle.setAttribute('aria-pressed',String(backgroundCardsVisible));stage.classList.toggle('hide-bg-cards',!backgroundCardsVisible)}
+    updateAccentIcons(background.accent||currentCssVariable('--accent','#f2a31b'));
+  }else if(current?.customBackground){stage.dataset.bg='custom';stage.style.backgroundImage='url("'+current.customBackground+'")';$$('.bg').forEach(item=>item.classList.remove('active'));updateBgColorEditors('custom')}
+};
+function renderProductsFromSources(){const products=$$('#products .product');products.forEach((item,index)=>{if(productSources[index])item.src=productSources[index]});refreshProductSlotThumbs()}
+function cloudProjectSnapshot(){
+  const data=projectSnapshot();saveVisualState();saveWorkshopAssets();
+  delete data.savedProducts;delete data.savedCards;data.version=3;data.visualStates=JSON.parse(JSON.stringify(visualStates));data.workshopAssets=JSON.parse(JSON.stringify(workshopAssets));
+  data.activeView={workshop,format,productCount:productCountSelect.value,cardCount:cardCountSelect.value,backgroundCardsVisible,paletteLocked};
+  data.customImages=$$('.extra').map(item=>({uid:item.dataset.uid,src:item.src,workshopOwner:item.dataset.workshopOwner,position:snap(item)}));return data
+}
 function applyCloudProject(data){
+  const view=data.activeView||{},nextWorkshop=modes[view.workshop]?view.workshop:workshop,nextFormat=modes[nextWorkshop].formats.some(([key])=>key===view.format)?view.format:modes[nextWorkshop].formats[0][0];
   visualStates=data.visualStates||{};Object.keys(states).forEach(key=>delete states[key]);Object.assign(states,data.states||{});Object.keys(workshopAssets).forEach(key=>delete workshopAssets[key]);Object.assign(workshopAssets,data.workshopAssets||{});(data.productSources||[]).forEach((src,index)=>productSources[index]=src);(data.cardSources||[]).forEach((src,index)=>cardSources[index]=src);
+  workshop=nextWorkshop;format=nextFormat;$$('.workshop').forEach(button=>button.classList.toggle('active',button.dataset.workshop===workshop));
+  if(view.productCount)productCountSelect.value=String(Math.max(1,Math.min(productLimit(),+view.productCount||3)));if(view.cardCount)cardCountSelect.value=String(Math.max(1,Math.min(3,+view.cardCount||3)));if(typeof view.backgroundCardsVisible==='boolean')backgroundCardsVisible=view.backgroundCardsVisible;if(typeof view.paletteLocked==='boolean')paletteLocked=view.paletteLocked;
+  loadWorkshopAssets();renderProductsFromSources();renderCards();
   $$('.extra').forEach(item=>item.remove());(data.customImages||[]).forEach(image=>{const item=document.createElement('img');item.className='extra';item.src=image.src;item.dataset.uid=image.uid||'e'+(++uid);item.dataset.workshopOwner=image.workshopOwner||workshop;item.dataset.z=image.position?.z||90;item.style.zIndex=item.dataset.z;stage.insertBefore(item,$('#delete'));restore(item,image.position);movable(item)});
-  persistCompositions();try{localStorage.setItem(F2K_EXTENDED_STATE,JSON.stringify(visualStates))}catch(_){}loadWorkshopAssets();renderCards();apply();updateWorkshopExtras();
+  persistCompositions();try{localStorage.setItem(F2K_EXTENDED_STATE,JSON.stringify(visualStates))}catch(_){}apply();
+  format=nextFormat;stage.className=stageClass();$$('#tabs .tab').forEach((button,index)=>button.classList.toggle('active',modes[workshop].formats[index]?.[0]===format));if(view.cardCount)cardCountSelect.value=String(Math.max(1,Math.min(3,+view.cardCount||3)));refreshProductCountButtons();applyCounts();updateWorkshopControls();renderProductsFromSources();renderCards();load();restoreVisualState();updateWorkshopExtras();applyTreePerspective();restartStageAnimations();repairLivePriceBadge();
 }
 function renderCloudProjects(){const select=projectManager.querySelector('.project-select'),items=cloudWorkspace?.projects||[];select.innerHTML=items.length?items.map(item=>'<option value="'+item.id+'">'+item.name.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>').join(''):'<option value="">Aucun projet</option>';projectCloudCount.textContent=items.length+' / '+(cloudWorkspace?.limits?.projects||10)+' projets enregistrés dans le cloud';projectDelete.disabled=!items.length}
 function installCloudProjectHandlers(){
