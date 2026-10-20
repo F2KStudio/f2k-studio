@@ -53,8 +53,8 @@ Le webhook PhotoRoom est encore visible dans le HTML. Il faut idéalement le rem
 
 ### Accès à l’outil
 
-- Code partagé : `F2K-STUDIO-26!`
-- SHA-256 dans le code : `37f8ed32fec54c684bf2007c292b0b4a236478895ca639287e823b1c31a3ae4b`
+- Code partagé : `[ANCIEN CODE RETIRÉ]`
+- SHA-256 dans le code : `[RETIRED]`
 - Session serveur normale : 12 h ; « mémoriser » : 30 jours.
 - Cinq erreurs : blocage local 15 minutes.
 - La porte est désactivée en `file:`, localhost et `127.0.0.1` pour le développement.
@@ -86,7 +86,7 @@ Backend complet :
 cd render-service
 npm install
 F2K_RENDER_API_KEY='secret-local' \
-F2K_ACCESS_CODE_HASH='37f8ed32fec54c684bf2007c292b0b4a236478895ca639287e823b1c31a3ae4b' \
+F2K_ACCESS_CODE_HASH='[RETIRED]' \
 F2K_SESSION_SECRET='autre-secret-local' \
 npm start
 ```
@@ -296,7 +296,7 @@ gcloud run deploy f2k-studio \
   --cpu 2 --memory 4Gi --concurrency 10 \
   --min-instances 0 --max-instances 1 --timeout 3600 \
   --no-cpu-throttling \
-  --set-env-vars F2K_ACCESS_CODE_HASH=37f8ed32fec54c684bf2007c292b0b4a236478895ca639287e823b1c31a3ae4b,F2K_RETENTION_MS=86400000 \
+  --set-env-vars F2K_ACCESS_CODE_HASH=[RETIRED],F2K_RETENTION_MS=86400000 \
   --set-secrets F2K_RENDER_API_KEY=f2k-render-api-key:latest,F2K_SESSION_SECRET=f2k-session-secret:latest
 ```
 

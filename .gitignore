@@ -1,0 +1,6 @@
+
+# Local dependencies and server secrets
+**/node_modules
+.env
+.env.*
+!.env.example
