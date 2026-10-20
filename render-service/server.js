@@ -4,59 +4,27 @@ import path from 'node:path';
 import os from 'node:os';
 import {spawn} from 'node:child_process';
 import express from 'express';
-import cors from 'cors';
+import {installSecurity, installMakeRelay} from './studio-security.js';
 import {chromium} from 'playwright';
 import {CloudWorkspaceStore} from './cloud-store.js';
 
 const app=express();
 const port=Number(process.env.PORT||8080);
 const publicDirectory=process.env.F2K_PUBLIC_DIR||path.join(process.cwd(),'public');
-const apiKey=process.env.F2K_RENDER_API_KEY||'';
-const accessCodeHash=process.env.F2K_ACCESS_CODE_HASH||'';
-const sessionSecret=process.env.F2K_SESSION_SECRET||'';
-const allowedOrigin=process.env.F2K_ALLOWED_ORIGIN||'';
 const chatSarahWebhookUrl=process.env.CHAT_SARAH_WEBHOOK_URL||'';
-const workspaceStore=new CloudWorkspaceStore({bucketName:process.env.F2K_STORAGE_BUCKET||'',localDirectory:process.env.F2K_STORAGE_DIR||''});
+const workspaceStores=new Map();
+function storeFor(user){
+  if(!workspaceStores.has(user))workspaceStores.set(user,new CloudWorkspaceStore({bucketName:process.env.F2K_STORAGE_BUCKET||'',localDirectory:process.env.F2K_STORAGE_DIR||'',namespace:user}));
+  return workspaceStores.get(user);
+}
 const retentionMs=Math.max(15*60*1000,Number(process.env.F2K_RETENTION_MS||24*60*60*1000));
 const jobs=new Map();
 let queue=Promise.resolve();
 
-app.disable('x-powered-by');
-app.use(cors({origin:allowedOrigin||false,credentials:false}));
+const security=installSecurity(app,express);
+installMakeRelay(app,express,{'/api/cutout':'CUTOUT_WEBHOOK_URL'});
 app.use(express.json({limit:'75mb'}));
-
-function cookieValue(req,name){
-  const entries=String(req.headers.cookie||'').split(';').map(value=>value.trim().split('='));
-  const found=entries.find(([key])=>key===name);
-  return found?decodeURIComponent(found.slice(1).join('=')):'';
-}
-
-function signSession(expiresAt){
-  const payload=String(expiresAt);
-  const signature=crypto.createHmac('sha256',sessionSecret).update(payload).digest('hex');
-  return `${payload}.${signature}`;
-}
-
-function validSession(req){
-  if(!sessionSecret)return false;
-  const token=cookieValue(req,'f2k_session');
-  const [expires,signature]=token.split('.');
-  if(!expires||!signature||Number(expires)<=Date.now())return false;
-  const expected=crypto.createHmac('sha256',sessionSecret).update(expires).digest('hex');
-  const left=Buffer.from(signature),right=Buffer.from(expected);
-  return left.length===right.length&&crypto.timingSafeEqual(left,right);
-}
-
-function authenticate(req,res,next){
-  if(process.env.NODE_ENV!=='production'&&['127.0.0.1','localhost'].includes(req.hostname))return next();
-  const supplied=req.get('x-f2k-render-key')||'';
-  if(apiKey&&supplied){
-    const left=Buffer.from(supplied),right=Buffer.from(apiKey);
-    if(left.length===right.length&&crypto.timingSafeEqual(left,right))return next();
-  }
-  if(validSession(req))return next();
-  return res.status(401).json({error:'Unauthorized'});
-}
+function authenticate(req,res,next){req.workspaceStore=storeFor(req.studioUser);next()}
 
 function publicJob(job){
   return{
@@ -91,6 +59,15 @@ async function run(command,args,options={}){
   });
 }
 
+async function restrictRenderNetwork(page,htmlPath){
+  const hosts=new Set(['fonts.googleapis.com','fonts.gstatic.com','res.cloudinary.com','f2kstudio.github.io']);
+  await page.route('**/*',route=>{
+    const url=new URL(route.request().url());
+    return (url.protocol==='data:'||url.protocol==='blob:'||url.href===`file://${htmlPath}`||(url.protocol==='https:'&&(!url.port||url.port==='443')&&hosts.has(url.hostname)))?route.continue():route.abort();
+  });
+  await page.routeWebSocket('**/*',socket=>socket.close());
+}
+
 async function render(job,payload){
   if(job.cancelled)throw new DOMException('Render cancelled','AbortError');
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),`f2k-${job.id}-`));
@@ -99,11 +76,12 @@ async function render(job,payload){
   job.directory=directory;
   job.status='rendering';
   job.progress=2;
-  await fs.writeFile(htmlPath,await workspaceStore.inlineAssetUrls(payload.html),'utf8');
+  await fs.writeFile(htmlPath,payload.html,'utf8');
   const browser=await chromium.launch({headless:true,args:['--disable-dev-shm-usage','--no-sandbox']});
   try{
     const scale=Math.min(4,payload.width/payload.renderWidth,payload.height/payload.renderHeight);
-    const page=await browser.newPage({viewport:{width:payload.renderWidth,height:payload.renderHeight},deviceScaleFactor:scale});
+    const page=await browser.newPage({serviceWorkers:'block',viewport:{width:payload.renderWidth,height:payload.renderHeight},deviceScaleFactor:scale});
+    await restrictRenderNetwork(page,htmlPath);
     await page.goto(`file://${htmlPath}`,{waitUntil:'networkidle'});
     await page.evaluate(async()=>{if(document.fonts?.ready)await document.fonts.ready;for(const image of document.images){if(!image.complete)await new Promise(resolve=>{image.onload=image.onerror=resolve})}});
     await page.evaluate(()=>{const stage=document.querySelector('.stage');if(!stage)return;stage.classList.remove('animate-in');void stage.offsetWidth;stage.classList.add('animate-in')});
@@ -137,11 +115,12 @@ async function render(job,payload){
 async function renderPng(payload){
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),'f2k-png-'));
   const htmlPath=path.join(directory,'render.html');
-  await fs.writeFile(htmlPath,await workspaceStore.inlineAssetUrls(payload.html),'utf8');
+  await fs.writeFile(htmlPath,payload.html,'utf8');
   const browser=await chromium.launch({headless:true,args:['--disable-dev-shm-usage','--no-sandbox']});
   try{
     const scale=Math.min(4,payload.width/payload.renderWidth,payload.height/payload.renderHeight);
-    const page=await browser.newPage({viewport:{width:payload.renderWidth,height:payload.renderHeight},deviceScaleFactor:scale});
+    const page=await browser.newPage({serviceWorkers:'block',viewport:{width:payload.renderWidth,height:payload.renderHeight},deviceScaleFactor:scale});
+    await restrictRenderNetwork(page,htmlPath);
     await page.goto(`file://${htmlPath}`,{waitUntil:'networkidle'});
     await page.evaluate(async()=>{
       if(document.fonts?.ready)await document.fonts.ready;
@@ -171,7 +150,7 @@ function enqueue(job,payload){
 app.get('/api/health',(req,res)=>res.json({ok:true,queued:[...jobs.values()].filter(job=>['queued','rendering','encoding'].includes(job.status)).length}));
 
 function requireCloudStore(req,res,next){
-  if(!workspaceStore.enabled)return res.status(503).json({error:'La sauvegarde cloud n’est pas configurée.'});
+  if(!req.workspaceStore.enabled)return res.status(503).json({error:'La sauvegarde cloud n’est pas configurée.'});
   return next();
 }
 
@@ -181,41 +160,42 @@ function cloudError(res,error){
 }
 
 app.get('/api/workspace',authenticate,requireCloudStore,async(req,res)=>{
-  try{res.json(await workspaceStore.workspace())}catch(error){cloudError(res,error)}
+  try{res.json(await req.workspaceStore.workspace())}catch(error){cloudError(res,error)}
 });
 
 app.get('/api/projects/:id',authenticate,requireCloudStore,async(req,res)=>{
-  try{const project=await workspaceStore.getProject(req.params.id);project?res.json(project):res.status(404).json({error:'Projet introuvable.'})}catch(error){cloudError(res,error)}
+  try{const project=await req.workspaceStore.getProject(req.params.id);project?res.json(project):res.status(404).json({error:'Projet introuvable.'})}catch(error){cloudError(res,error)}
 });
 
 app.post('/api/projects',authenticate,requireCloudStore,async(req,res)=>{
-  try{res.json(await workspaceStore.saveProject({id:req.body.id,name:req.body.name,data:req.body.data}))}catch(error){cloudError(res,error)}
+  try{res.json(await req.workspaceStore.saveProject({id:req.body.id,name:req.body.name,data:req.body.data}))}catch(error){cloudError(res,error)}
 });
 
 app.delete('/api/projects/:id',authenticate,requireCloudStore,async(req,res)=>{
-  try{(await workspaceStore.deleteProject(req.params.id))?res.json({ok:true}):res.status(404).json({error:'Projet introuvable.'})}catch(error){cloudError(res,error)}
+  try{(await req.workspaceStore.deleteProject(req.params.id))?res.json({ok:true}):res.status(404).json({error:'Projet introuvable.'})}catch(error){cloudError(res,error)}
 });
 
 app.post('/api/assets',authenticate,requireCloudStore,async(req,res)=>{
-  try{res.json(await workspaceStore.addAsset({kind:req.body.kind,name:req.body.name,dataUrl:req.body.dataUrl,usage:req.body.usage}))}catch(error){cloudError(res,error)}
+  try{res.json(await req.workspaceStore.addAsset({kind:req.body.kind,name:req.body.name,dataUrl:req.body.dataUrl,usage:req.body.usage}))}catch(error){cloudError(res,error)}
 });
 
 app.get('/api/assets/:id',authenticate,requireCloudStore,async(req,res)=>{
   try{
-    const asset=await workspaceStore.getAsset(req.params.id);
+    const asset=await req.workspaceStore.getAsset(req.params.id);
     if(!asset)return res.status(404).end();
-    res.setHeader('Cache-Control','private, max-age=31536000, immutable');
+    res.setHeader('Cache-Control','private, no-store');
     res.type(asset.item.contentType).send(asset.buffer);
   }catch(error){cloudError(res,error)}
 });
 
 app.delete('/api/assets/:id',authenticate,requireCloudStore,async(req,res)=>{
-  try{(await workspaceStore.removeAssetFromLibrary(req.params.id))?res.json({ok:true}):res.status(404).json({error:'Image introuvable.'})}catch(error){cloudError(res,error)}
+  try{(await req.workspaceStore.removeAssetFromLibrary(req.params.id))?res.json({ok:true}):res.status(404).json({error:'Image introuvable.'})}catch(error){cloudError(res,error)}
 });
 
 app.post('/api/png',authenticate,async(req,res)=>{
   try{
     const payload=validatePayload(req.body);
+    payload.html=await req.workspaceStore.inlineAssetUrls(payload.html);
     const png=await renderPng(payload);
     const filename=String(req.body.filename||'f2k-export.png').replace(/[^a-z0-9._-]/gi,'-').replace(/\.mp4$/i,'.png');
     res.type('png');
@@ -239,23 +219,12 @@ app.post('/api/chat-sarah',authenticate,async(req,res)=>{
   }
 });
 
-app.post('/api/session',(req,res)=>{
-  if(!accessCodeHash||!sessionSecret)return res.status(503).json({error:'Server access is not configured'});
-  const supplied=crypto.createHash('sha256').update(String(req.body.code||'')).digest('hex');
-  const left=Buffer.from(supplied),right=Buffer.from(accessCodeHash);
-  if(left.length!==right.length||!crypto.timingSafeEqual(left,right))return res.status(401).json({error:'Invalid access code'});
-  const remember=Boolean(req.body.remember),lifetime=remember?30*24*60*60*1000:12*60*60*1000,expiresAt=Date.now()+lifetime;
-  const cookie=[`f2k_session=${encodeURIComponent(signSession(expiresAt))}`,'Path=/','HttpOnly','SameSite=Strict',`Max-Age=${Math.floor(lifetime/1000)}`];
-  if(process.env.NODE_ENV==='production')cookie.push('Secure');
-  res.setHeader('Set-Cookie',cookie.join('; '));
-  res.json({ok:true,expiresAt:new Date(expiresAt).toISOString()});
-});
-
-app.post('/api/video-jobs',authenticate,(req,res)=>{
+app.post('/api/video-jobs',authenticate,async(req,res)=>{
   try{
     const payload=validatePayload(req.body);
+    payload.html=await req.workspaceStore.inlineAssetUrls(payload.html);
     const id=crypto.randomUUID();
-    const job={id,status:'queued',progress:0,createdAt:Date.now(),cancelled:false,abortController:new AbortController()};
+    const job={id,owner:req.studioUser,status:'queued',progress:0,createdAt:Date.now(),cancelled:false,abortController:new AbortController()};
     jobs.set(id,job);
     enqueue(job,payload);
     res.status(202).json(publicJob(job));
@@ -266,13 +235,13 @@ app.post('/api/video-jobs',authenticate,(req,res)=>{
 
 app.get('/api/video-jobs/:id',authenticate,(req,res)=>{
   const job=jobs.get(req.params.id);
-  if(!job)return res.status(404).json({error:'Job not found'});
+  if(!job||job.owner!==req.studioUser)return res.status(404).json({error:'Job not found'});
   res.json(publicJob(job));
 });
 
 app.delete('/api/video-jobs/:id',authenticate,(req,res)=>{
   const job=jobs.get(req.params.id);
-  if(!job)return res.status(404).json({error:'Job not found'});
+  if(!job||job.owner!==req.studioUser)return res.status(404).json({error:'Job not found'});
   if(['completed','failed','cancelled'].includes(job.status))return res.json(publicJob(job));
   job.cancelled=true;
   job.status='cancelled';
@@ -282,7 +251,7 @@ app.delete('/api/video-jobs/:id',authenticate,(req,res)=>{
 
 app.get('/api/video-jobs/:id/download',authenticate,(req,res)=>{
   const job=jobs.get(req.params.id);
-  if(!job||job.status!=='completed')return res.status(404).json({error:'Video is not available'});
+  if(!job||job.owner!==req.studioUser||job.status!=='completed')return res.status(404).json({error:'Video is not available'});
   res.download(job.outputPath,job.filename);
 });
 
@@ -297,7 +266,7 @@ setInterval(async()=>{
   }
 },10*60*1000).unref();
 
-app.get(['/', '/index.html'],(req,res)=>{res.setHeader('Cache-Control','no-store');res.sendFile(path.join(publicDirectory,'index.html'))});
+app.get(['/', '/index.html'],(req,res)=>{res.setHeader('Cache-Control','no-store');security.sendEditor(req,res,path.join(publicDirectory,'index.html'))});
 app.use(express.static(publicDirectory,{index:false,maxAge:process.env.NODE_ENV==='production'?'5m':0}));
 
 app.listen(port,'0.0.0.0',()=>console.log(`F2K renderer listening on ${port}`));

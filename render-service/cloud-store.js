@@ -24,9 +24,11 @@ function extensionFor(contentType){
 }
 
 export class CloudWorkspaceStore{
-  constructor({bucketName='',localDirectory='' }={}){
+  constructor({bucketName='',localDirectory='',namespace }={}){
+    if(!/^[a-z0-9_-]{1,64}$/.test(namespace||''))throw new Error('Account namespace required');
+    this.root=`${ROOT}/accounts/${namespace}`;
     this.bucketName=bucketName;
-    this.localDirectory=localDirectory;
+    this.localDirectory=localDirectory?path.join(localDirectory,'accounts',namespace):'';
     this.storage=bucketName?new Storage():null;
     this.bucket=bucketName?this.storage.bucket(bucketName):null;
     this.mutation=Promise.resolve();
@@ -36,7 +38,7 @@ export class CloudWorkspaceStore{
 
   async read(key){
     if(this.bucket){
-      const file=this.bucket.file(`${ROOT}/${key}`);
+      const file=this.bucket.file(`${this.root}/${key}`);
       const [exists]=await file.exists();
       if(!exists)return null;
       const [buffer]=await file.download();
@@ -47,7 +49,7 @@ export class CloudWorkspaceStore{
 
   async write(key,buffer,contentType='application/octet-stream'){
     if(this.bucket){
-      await this.bucket.file(`${ROOT}/${key}`).save(buffer,{resumable:false,contentType,metadata:{cacheControl:contentType.startsWith('image/')?'private, max-age=31536000':'no-store'}});
+      await this.bucket.file(`${this.root}/${key}`).save(buffer,{resumable:false,contentType,metadata:{cacheControl:contentType.startsWith('image/')?'private, max-age=31536000':'no-store'}});
       return;
     }
     const target=path.join(this.localDirectory,key);
@@ -56,7 +58,7 @@ export class CloudWorkspaceStore{
   }
 
   async remove(key){
-    if(this.bucket){await this.bucket.file(`${ROOT}/${key}`).delete({ignoreNotFound:true});return}
+    if(this.bucket){await this.bucket.file(`${this.root}/${key}`).delete({ignoreNotFound:true});return}
     await fs.rm(path.join(this.localDirectory,key),{force:true});
   }
 
